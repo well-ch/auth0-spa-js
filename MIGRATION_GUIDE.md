@@ -339,7 +339,7 @@ In v1, `getIdTokenClaimsOptions` is an alias for `GetIdTokenClaimsOptions` which
 Previously our SDK exported a default function that’s both our `createAuth0Client` factory, as well as contained additional functions such as `Auth0Client`, as well as our different types of errors.
 
 ```ts
-import createAuth0Client from '@auth0/auth0-spa-js';
+import createAuth0Client from '@well-projects/auth0-spa-js';
 
 const client = createAuth0Client();
 const client = createAuth0Client.createAuth0Client();
@@ -350,7 +350,7 @@ const errorTypes = [createAuth0Client.GenericError, ...];
 With the release of v2, we no longer export a default value, instead, each exported value is only available by using a named import.
 
 ```ts
-import {createAuth0Client, Auth0Client, GenericError} from '@auth0/auth0-spa-js';
+import {createAuth0Client, Auth0Client, GenericError} from '@well-projects/auth0-spa-js';
 
 const client = createAuth0Client();
 const client = new Auth0Client();

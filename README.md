@@ -1,8 +1,8 @@
 ![Auth0 SDK for Single Page Applications using Authorization Code Grant Flow with PKCE.](https://cdn.auth0.com/website/sdks/banners/spa-js-banner.png)
 
-![Release](https://img.shields.io/npm/v/@auth0/auth0-spa-js)
+![Release](https://img.shields.io/npm/v/@well-projects/auth0-spa-js)
 [![Codecov](https://img.shields.io/codecov/c/github/auth0/auth0-spa-js)](https://codecov.io/gh/auth0/auth0-spa-js)
-![Downloads](https://img.shields.io/npm/dw/@auth0/auth0-spa-js)
+![Downloads](https://img.shields.io/npm/dw/@well-projects/auth0-spa-js)
 [![License](https://img.shields.io/:license-mit-blue.svg?style=flat)](https://opensource.org/licenses/MIT)
 ![CircleCI](https://img.shields.io/circleci/build/github/auth0/auth0-spa-js)
 
@@ -23,7 +23,7 @@
 Using [npm](https://npmjs.org) in your project directory run the following command:
 
 ```sh
-npm install @auth0/auth0-spa-js
+npm install @well-projects/auth0-spa-js
 ```
 
 From the CDN:
@@ -58,7 +58,7 @@ Take note of the **Client ID** and **Domain** values under the "Basic Informatio
 Create an `Auth0Client` instance before rendering or initializing your application. You should only have one instance of the client.
 
 ```js
-import { createAuth0Client } from '@auth0/auth0-spa-js';
+import { createAuth0Client } from '@well-projects/auth0-spa-js';
 
 //with async/await
 const auth0 = await createAuth0Client({
@@ -70,7 +70,7 @@ const auth0 = await createAuth0Client({
 });
 
 //or, you can just instantiate the client on its own
-import { Auth0Client } from '@auth0/auth0-spa-js';
+import { Auth0Client } from '@well-projects/auth0-spa-js';
 
 const auth0 = new Auth0Client({
   domain: '<AUTH0_DOMAIN>',

@@ -124,12 +124,12 @@ If you want to use a CDN bundle together with import maps, you will need to use 
 <script type="importmap">
   {
     "imports": {
-      "@auth0/auth0-spa-js": "https://www.unpkg.com/@auth0/auth0-spa-js@2.1.3/dist/auth0-spa-js.production.esm.js"
+      "@well-projects/auth0-spa-js": "https://www.unpkg.com/@well-projects/auth0-spa-js@2.1.3/dist/auth0-spa-js.production.esm.js"
     }
   }
 </script>
 <script type="module">
-  import { createAuth0Client, Auth0Client } from '@auth0/auth0-spa-js';
+  import { createAuth0Client, Auth0Client } from '@well-projects/auth0-spa-js';
 
   const client = createAuth0Client({ ... });
   // or
@@ -161,13 +161,13 @@ To allow you to keep strict Content-Security-Policy (CSP), and not have to allow
 For example, if I have a folder called `static` in the root of my project then I could update my build script to copy the worker file to it:
 
 ```sh
-my-build-script && cp ./node_modules/@auth0/auth0-spa-js/dist/auth0-spa-js.worker.development.js ./static/
+my-build-script && cp ./node_modules/@well-projects/auth0-spa-js/dist/auth0-spa-js.worker.development.js ./static/
 ```
 
 Now when instantiating the SDK, I can configure it to load the worker code from that location:
 
 ```ts
-import { createAuth0Client, Auth0Client } from '@auth0/auth0-spa-js';
+import { createAuth0Client, Auth0Client } from '@well-projects/auth0-spa-js';
 
 const client = createAuth0Client({
   ...

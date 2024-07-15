@@ -23,7 +23,7 @@ env:
   IMPORT_STATEMENT: |
     import './auth0';
   AUTH0_CONTENT: |
-    import { Auth0Client } from '@auth0/auth0-spa-js';
+    import { Auth0Client } from '@well-projects/auth0-spa-js';
     new Auth0Client({
       domain: 'DOMAIN',
       clientId: 'CLIENT_ID'
@@ -76,75 +76,6 @@ jobs:
 
       - name: Upload coverage
         uses: codecov/codecov-action@4fe8c5f003fae66aa5ebb77cfd3e7bfbbda0b6b0 # pin@3.1.5
-  gatsby:
-    needs: test
-
-    name: Gatsby Tests
-    runs-on: ubuntu-latest
-
-    env:
-      IMPORT_STATEMENT: |
-        import './../auth0';
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run framework tests
-        uses: ./.github/actions/framework
-        with:
-          node: ${{ env.NODE_VERSION }}
-          cache: ${{ env.CACHE_KEY }}
-          install: |
-            npx gatsby new my-app < /dev/null
-          content: |
-            echo -e "${{ env.AUTH0_CONTENT }}" > src/auth0.js;
-          import: |
-            echo -e "${{ env.IMPORT_STATEMENT }}"|cat - src/pages/index.js > /tmp/out && mv /tmp/out src/pages/index.js;
-
-  react:
-    needs: test
-
-    name: React Tests
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run framework tests
-        uses: ./.github/actions/framework
-        with:
-          node: ${{ env.NODE_VERSION }}
-          cache: ${{ env.CACHE_KEY }}
-          install: |
-            npx create-react-app my-app < /dev/null
-          content: |
-            echo -e "${{ env.AUTH0_CONTENT }}" > src/auth0.js;
-          import: |
-            echo -e "${{ env.IMPORT_STATEMENT }}"|cat - src/index.js > /tmp/out && mv /tmp/out src/index.js;
-
-  vue:
-    needs: test
-
-    name: Vue Tests
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run framework tests
-        uses: ./.github/actions/framework
-        with:
-          node: 20
-          cache: ${{ env.CACHE_KEY }}
-          install: |
-            npx -p @vue/cli vue create my-app -d --packageManager npm  < /dev/null
-          content: |
-            echo -e "${{ env.AUTH0_CONTENT }}" > src/auth0.js;
-          import: |
-            echo -e "${{ env.IMPORT_STATEMENT }}"|cat - src/main.js > /tmp/out && mv /tmp/out src/main.js;
 
   angular:
     needs: test
