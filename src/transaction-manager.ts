@@ -24,19 +24,19 @@ export class TransactionManager {
     this.storageKey = `${TRANSACTION_STORAGE_KEY_PREFIX}.${this.clientId}`;
   }
 
-  public create(transaction: Transaction) {
-    this.storage.save(this.storageKey, transaction, {
+  public async create(transaction: Transaction) {
+    await this.storage.save(this.storageKey, transaction, {
       daysUntilExpire: 1,
       cookieDomain: this.cookieDomain
     });
   }
 
-  public get(): Transaction | undefined {
+  public async get(): Promise<Transaction | undefined> {
     return this.storage.get(this.storageKey);
   }
 
-  public remove() {
-    this.storage.remove(this.storageKey, {
+  public async remove() {
+    await this.storage.remove(this.storageKey, {
       cookieDomain: this.cookieDomain
     });
   }
