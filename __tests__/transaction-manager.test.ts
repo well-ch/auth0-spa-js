@@ -42,14 +42,14 @@ describe('transaction manager', () => {
       tm = new TransactionManager(SessionStorage, TEST_CLIENT_ID);
     });
 
-    it('`create` creates the transaction', () => {
+    it('`create` creates the transaction', async () => {
       jest.mocked(sessionStorage.getItem).mockReturnValue(transactionJson);
-      tm.create(transaction);
-      expect(tm.get()).toMatchObject(transaction);
+      await tm.create(transaction);
+      expect(await tm.get()).toMatchObject(transaction);
     });
 
-    it('`create` saves the transaction in the storage', () => {
-      tm.create(transaction);
+    it('`create` saves the transaction in the storage', async () => {
+      await tm.create(transaction);
 
       expect(sessionStorage.setItem).toHaveBeenCalledWith(
         transactionKey(),
@@ -57,30 +57,30 @@ describe('transaction manager', () => {
       );
     });
 
-    it('`get` without a transaction should return undefined', () => {
-      expect(tm.get()).toBeUndefined();
+    it('`get` without a transaction should return undefined', async () => {
+      expect(await tm.get()).toBeUndefined();
     });
 
-    it('`get` with a transaction should return the transaction', () => {
+    it('`get` with a transaction should return the transaction', async () => {
       jest.mocked(sessionStorage.getItem).mockReturnValue(transactionJson);
-      expect(tm.get()).toMatchObject(transaction);
+      expect(await tm.get()).toMatchObject(transaction);
     });
 
-    it('`remove` removes the transaction', () => {
-      tm.create(transaction);
-      tm.remove();
-      expect(tm.get()).toBeUndefined();
+    it('`remove` removes the transaction', async () => {
+      await tm.create(transaction);
+      await tm.remove();
+      expect(await tm.get()).toBeUndefined();
     });
 
-    it('`remove` removes transaction from storage', () => {
-      tm.create(transaction);
+    it('`remove` removes transaction from storage', async () => {
+      await tm.create(transaction);
 
       expect(sessionStorage.setItem).toHaveBeenCalledWith(
         transactionKey(),
         transactionJson
       );
 
-      tm.remove();
+      await tm.remove();
       expect(sessionStorage.removeItem).toHaveBeenCalledWith(transactionKey());
     });
   });

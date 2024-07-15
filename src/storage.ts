@@ -1,4 +1,5 @@
 import * as Cookies from 'es-cookie';
+import { MaybePromise } from './cache';
 
 interface ClientStorageOptions {
   daysUntilExpire?: number;
@@ -9,9 +10,13 @@ interface ClientStorageOptions {
  * Defines a type that handles storage to/from a storage location
  */
 export type ClientStorage = {
-  get<T extends Object>(key: string): T | undefined;
-  save(key: string, value: any, options?: ClientStorageOptions): void;
-  remove(key: string, options?: ClientStorageOptions): void;
+  get<T extends Object>(key: string): MaybePromise<T | undefined>;
+  save(
+    key: string,
+    value: any,
+    options?: ClientStorageOptions
+  ): MaybePromise<void>;
+  remove(key: string, options?: ClientStorageOptions): MaybePromise<void>;
 };
 
 /**

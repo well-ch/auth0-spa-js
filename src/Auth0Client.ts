@@ -191,9 +191,9 @@ export class Auth0Client {
     this.sessionCheckExpiryDays =
       options.sessionCheckExpiryDays || DEFAULT_SESSION_CHECK_EXPIRY_DAYS;
 
-    const transactionStorage = options.useCookiesForTransactions
-      ? this.cookieStorage
-      : SessionStorage;
+    const transactionStorage =
+      options.transactionStorage ||
+      (options.useCookiesForTransactions ? this.cookieStorage : SessionStorage);
 
     // Construct the scopes based on the following:
     // 1. Always include `openid`
@@ -461,7 +461,7 @@ export class Auth0Client {
       urlOptions.authorizationParams || {}
     );
 
-    this.transactionManager.create({
+    await this.transactionManager.create({
       ...transaction,
       appState,
       ...(organization && { organization })
@@ -495,13 +495,13 @@ export class Auth0Client {
       queryStringFragments.join('')
     );
 
-    const transaction = this.transactionManager.get();
+    const transaction = await this.transactionManager.get();
 
     if (!transaction) {
       throw new GenericError('missing_transaction', 'Invalid state');
     }
 
-    this.transactionManager.remove();
+    await this.transactionManager.remove();
 
     if (error) {
       throw new AuthenticationError(
@@ -625,7 +625,7 @@ export class Auth0Client {
    *
    * If refresh tokens are used, the token endpoint is called directly with the
    * 'refresh_token' grant. If no refresh token is available to make this call,
-   * the SDK will only fall back to using an iframe to the '/authorize' URL if 
+   * the SDK will only fall back to using an iframe to the '/authorize' URL if
    * the `useRefreshTokensFallback` setting has been set to `true`. By default this
    * setting is `false`.
    *
@@ -866,7 +866,9 @@ export class Auth0Client {
       prompt: 'none'
     };
 
-    const orgHint = this.cookieStorage.get<string>(this.orgHintCookieName);
+    const orgHint = await this.cookieStorage.get<string>(
+      this.orgHintCookieName
+    );
 
     if (orgHint && !params.organization) {
       params.organization = orgHint;
