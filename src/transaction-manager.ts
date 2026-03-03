@@ -37,14 +37,14 @@ export class TransactionManager {
     this.storageKey = `${TRANSACTION_STORAGE_KEY_PREFIX}.${this.clientId}`;
   }
 
-  public async create<T extends Object = LoginTransaction>(transaction: T): Promise<T | undefined> {
+  public async create<T extends Object = LoginTransaction>(transaction: T) {
     await this.storage.save(this.storageKey, transaction, {
       daysUntilExpire: 1,
       cookieDomain: this.cookieDomain
     });
   }
 
-  public get<T extends Object = LoginTransaction>(): Promise<T | undefined> {
+  public async get<T extends Object = LoginTransaction>(): Promise<T | undefined> {
     return this.storage.get(this.storageKey);
   }
 

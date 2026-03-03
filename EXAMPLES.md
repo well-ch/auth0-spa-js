@@ -707,7 +707,7 @@ You can now [call the API](#calling-an-api) with your access token and the API c
 After initializing the Auth0Client, you can retrieve the configuration details:
 
 ```js
-import { createAuth0Client } from '@auth0/auth0-spa-js';
+import { createAuth0Client } from '@well-projects/auth0-spa-js';
 
 const auth0 = await createAuth0Client({
   domain: 'YOUR_DOMAIN',
@@ -1138,7 +1138,7 @@ import {
   MfaChallengeError,
   MfaVerifyError,
   MfaEnrollmentFactorsError
-} from '@auth0/auth0-spa-js';
+} from '@well-projects/auth0-spa-js';
 
 // Get authenticators
 try {
@@ -1253,7 +1253,7 @@ import {
   PopupOpenError,
   PopupCancelledError,
   PopupTimeoutError
-} from '@auth0/auth0-spa-js';
+} from '@well-projects/auth0-spa-js';
 
 try {
   const accessToken = await auth0.getTokenSilently({
