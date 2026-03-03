@@ -1,48 +1,233 @@
 # Change Log
 
+## [v2.17.0](https://github.com/auth0/auth0-spa-js/tree/v2.17.0) (2026-02-23)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.16.0...v2.17.0)
+
+**Added**
+- feat: support MFA step-up authentication via popup in iframe-based silent auth flow [\#1540](https://github.com/auth0/auth0-spa-js/pull/1540) ([gyaneshgouraw-okta](https://github.com/gyaneshgouraw-okta))
+
+**Fixed**
+- Fix misspelling of `authenticate` in `createAuth0Client` docstring [\#1537](https://github.com/auth0/auth0-spa-js/pull/1537) ([StephenP-Hung](https://github.com/StephenP-Hung))
+
+## [v2.16.0](https://github.com/auth0/auth0-spa-js/tree/v2.16.0) (2026-02-16)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.15.0...v2.16.0)
+
+**Added**
+- feat: implement step-up authentication with interactive error handling and popup support [\#1531](https://github.com/auth0/auth0-spa-js/pull/1531) ([gyaneshgouraw-okta](https://github.com/gyaneshgouraw-okta))
+- Chore: Update TOC to reflect Custom Token Exchange section in EXAMPLES.md [\#1533](https://github.com/auth0/auth0-spa-js/pull/1533) ([cschetan77](https://github.com/cschetan77))
+
+## [v2.15.0](https://github.com/auth0/auth0-spa-js/tree/v2.15.0) (2026-02-11)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.14.0...v2.15.0)
+
+**Added**
+- feat: use Web Locks API for cross-tab synchronization [\#1530](https://github.com/auth0/auth0-spa-js/pull/1530) ([yogeshchoudhary147](https://github.com/yogeshchoudhary147))
+
+**Fixed**
+- fix: preserve token expiration during refresh token rotation [\#1529](https://github.com/auth0/auth0-spa-js/pull/1529) ([yogeshchoudhary147](https://github.com/yogeshchoudhary147))
+
+## [v2.14.0](https://github.com/auth0/auth0-spa-js/tree/v2.14.0) (2026-02-05)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.13.1...v2.14.0)
+
+**Added**
+- feat: add loginWithCustomTokenExchange and deprecate exchangeToken [\#1526](https://github.com/auth0/auth0-spa-js/pull/1526) ([yogeshchoudhary147](https://github.com/yogeshchoudhary147))
+
+**Fixed**
+- fix: logout blocked users directly when using refresh tokens [\#1525](https://github.com/auth0/auth0-spa-js/pull/1525) ([yogeshchoudhary147](https://github.com/yogeshchoudhary147))
+
+## [v2.13.1](https://github.com/auth0/auth0-spa-js/tree/v2.13.1) (2026-02-02)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.13.0...v2.13.1)
+
+**Fixed**
+- fix: pass custom parameters to token exchange [\#1519](https://github.com/auth0/auth0-spa-js/pull/1519) ([popaulina](https://github.com/popaulina))
+
+## [v2.13.0](https://github.com/auth0/auth0-spa-js/tree/v2.13.0) (2026-01-30)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.12.0...v2.13.0)
+
+**Added**
+- feat: add Multi-Factor Authentication (MFA) API support (#1482) [\#1512](https://github.com/auth0/auth0-spa-js/pull/1512) ([gyaneshgouraw-okta](https://github.com/gyaneshgouraw-okta))
+
+**Fixed**
+- fix: exclude env from /authorize to prevent query param truncation [\#1516](https://github.com/auth0/auth0-spa-js/pull/1516) ([yogeshchoudhary147](https://github.com/yogeshchoudhary147))
+
+## [v2.12.0](https://github.com/auth0/auth0-spa-js/tree/v2.12.0) (2026-01-27)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.11.3...v2.12.0)
+
+**Added**
+- feat: add getConfiguration method to Auth0Client for retrieving SDK configuration [\#1513](https://github.com/auth0/auth0-spa-js/pull/1513) ([gyaneshgouraw-okta](https://github.com/gyaneshgouraw-okta))
+- feat:  Integrate Auth0 Auth.js client and update dependencies [\#1509](https://github.com/auth0/auth0-spa-js/pull/1509) ([gyaneshgouraw-okta](https://github.com/gyaneshgouraw-okta))
+
+## [v2.11.3](https://github.com/auth0/auth0-spa-js/tree/v2.11.3) (2026-01-16)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.11.2...v2.11.3)
+
+**Fixed**
+- fix: add two-tier locking to prevent iframe race conditions causing "Invalid state" errors [\#1505](https://github.com/auth0/auth0-spa-js/pull/1505) ([yogeshchoudhary147](https://github.com/yogeshchoudhary147))
+- fix: handle undefined value when finding MRRT refresh token [\#1508](https://github.com/auth0/auth0-spa-js/pull/1508) ([mogzol](https://github.com/mogzol))
+- fix: update refresh token in all cache entries on rotation [\#1503](https://github.com/auth0/auth0-spa-js/pull/1503) ([gyaneshgouraw-okta](https://github.com/gyaneshgouraw-okta))
+
+## [v2.11.2](https://github.com/auth0/auth0-spa-js/tree/v2.11.2) (2026-01-12)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.11.1...v2.11.2)
+
+**Added**
+- fix: add closePopup option for Chrome extension compatibility [\#1500](https://github.com/auth0/auth0-spa-js/pull/1500) ([yogeshchoudhary147](https://github.com/yogeshchoudhary147))
+
+## [v2.11.1](https://github.com/auth0/auth0-spa-js/tree/v2.11.1) (2026-01-07)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.11.0...v2.11.1)
+
+**Fixed**
+- fix: clear cache when different user logs in without logout [\#1456](https://github.com/auth0/auth0-spa-js/pull/1456) ([yogeshchoudhary147](https://github.com/yogeshchoudhary147))
+
+## [v2.11.0](https://github.com/auth0/auth0-spa-js/tree/v2.11.0) (2025-12-11)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.10.0...v2.11.0)
+
+**Added**
+- feat: add organization parameter support to token exchange [\#1477](https://github.com/auth0/auth0-spa-js/pull/1477) ([yogeshchoudhary147](https://github.com/yogeshchoudhary147))
+
+## [v2.10.0](https://github.com/auth0/auth0-spa-js/tree/v2.10.0) (2025-12-03)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.9.1...v2.10.0)
+
+**Added**
+- feat: Improve popup open error [\#1292](https://github.com/auth0/auth0-spa-js/pull/1292) ([ArthurKnoep](https://github.com/ArthurKnoep))
+
+## [v2.9.1](https://github.com/auth0/auth0-spa-js/tree/v2.9.1) (2025-11-21)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.9.0...v2.9.1)
+
+**Added**
+- Export type for Custom Token Exchange support [\#1461](https://github.com/auth0/auth0-spa-js/pull/1461) ([yogeshchoudhary147](https://github.com/yogeshchoudhary147))
+
+## [v2.9.0](https://github.com/auth0/auth0-spa-js/tree/v2.9.0) (2025-11-17)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.8.0...v2.9.0)
+
+**Added**
+- feat: add support `scopes` parameter for connected accounts [\#1458](https://github.com/auth0/auth0-spa-js/pull/1458) ([guabu](https://github.com/guabu))
+
+**Security**
+- security:  Upgrade component-cdn-uploader to v2.4.0 to address critical vulnerability of form-data package [\#1454](https://github.com/auth0/auth0-spa-js/pull/1454) ([ankita10119](https://github.com/ankita10119))
+
+## [v2.8.0](https://github.com/auth0/auth0-spa-js/tree/v2.8.0) (2025-10-27)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.7.0...v2.8.0)
+
+**Added**
+- feat: ensure to only lock for the same audience and client_id [\#1408](https://github.com/auth0/auth0-spa-js/pull/1408) ([frederikprijck](https://github.com/frederikprijck))
+- Allow authorizationParameters.scope to accept an object [\#1446](https://github.com/auth0/auth0-spa-js/pull/1446) ([aridibag](https://github.com/aridibag))
+
+**Fixed**
+- fix: ensure to strip auth0Client [\#1438](https://github.com/auth0/auth0-spa-js/pull/1438) ([frederikprijck](https://github.com/frederikprijck))
+- Avoid saving token when MissingRefreshTokenError is thrown [\#1448](https://github.com/auth0/auth0-spa-js/pull/1448) ([aridibag](https://github.com/aridibag))
+
+## [v2.7.0](https://github.com/auth0/auth0-spa-js/tree/v2.7.0) (2025-10-17)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.6.0...v2.7.0)
+
+**Added**
+- Retry when DPoP nonce is expired [\#1445](https://github.com/auth0/auth0-spa-js/pull/1445) ([adamjmcgrath](https://github.com/adamjmcgrath))
+- [ESD-52771] Support mix of DPoP and Bearer in the fetcher [\#1442](https://github.com/auth0/auth0-spa-js/pull/1442) ([adamjmcgrath](https://github.com/adamjmcgrath))
+
+**Fixed**
+- Fix MRRT with default audience in worker [\#1439](https://github.com/auth0/auth0-spa-js/pull/1439) ([aridibag](https://github.com/aridibag))
+- Fetcher: fix incorrect URL building when `baseUrl` is present [\#1435](https://github.com/auth0/auth0-spa-js/pull/1435) ([martinml](https://github.com/martinml))
+
+## [v2.6.0](https://github.com/auth0/auth0-spa-js/tree/v2.6.0) (2025-10-10)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.5.0...v2.6.0)
+
+**Added**
+- Add support for connected accounts [\#1422](https://github.com/auth0/auth0-spa-js/pull/1422) ([adamjmcgrath](https://github.com/adamjmcgrath))
+
+**Fixed**
+- Fetcher should set DPoP nonce with nonce id [\#1431](https://github.com/auth0/auth0-spa-js/pull/1431) ([adamjmcgrath](https://github.com/adamjmcgrath))
+- fix: do not mark setAuthorizationHeader as async [\#1428](https://github.com/auth0/auth0-spa-js/pull/1428) ([frederikprijck](https://github.com/frederikprijck))
+
+## [v2.5.0](https://github.com/auth0/auth0-spa-js/tree/v2.5.0) (2025-10-01)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.4.1...v2.5.0)
+
+**Added**
+- Add Support for Multi-Resource Refresh Tokens (MRRT) [\#1386](https://github.com/auth0/auth0-spa-js/pull/1386) ([aridibag](https://github.com/aridibag))
+- Make Fetcher to be Scope- and Audience-Aware [\#1414](https://github.com/auth0/auth0-spa-js/pull/1414) ([frederikprijck](https://github.com/frederikprijck))
+
+## [v2.4.1](https://github.com/auth0/auth0-spa-js/tree/v2.4.1) (2025-09-10)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.4.0...v2.4.1)
+
+**Fixed**
+- fix: move runtime dependencies from devDependencies to dependencies [\#1411](https://github.com/auth0/auth0-spa-js/pull/1411) ([gyaneshgouraw-okta](https://github.com/gyaneshgouraw-okta))
+
+## [v2.4.0](https://github.com/auth0/auth0-spa-js/tree/v2.4.0) (2025-09-08)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.3.0...v2.4.0)
+
+**Added**
+- Add HTTP fetcher for DPoP [\#1400](https://github.com/auth0/auth0-spa-js/pull/1400) ([martinml](https://github.com/martinml))
+- Add support for DPoP [\#1388](https://github.com/auth0/auth0-spa-js/pull/1388) ([martinml](https://github.com/martinml))
+
+## [v2.3.0](https://github.com/auth0/auth0-spa-js/tree/v2.3.0) (2025-07-16)
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.2.0...v2.3.0)
+
+**Fixed**
+- Fix: Token Exchange Ignoring Scope and Audience Parameters [\#1365](https://github.com/auth0/auth0-spa-js/pull/1365) ([tusharpandey13](https://github.com/tusharpandey13))
+- bugfix: Correctly extract origin from domainUrl [\#1372](https://github.com/auth0/auth0-spa-js/pull/1372) ([tusharpandey13](https://github.com/tusharpandey13))
+
+## [v2.2.0](https://github.com/auth0/auth0-spa-js/tree/v2.2.0) (2025-05-28)
+
+[Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.1.3...v2.2.0)
+
+**Added**
+
+- Custom Token Exchange [\#1344](https://github.com/auth0/auth0-spa-js/pull/1344) ([tusharpandey13](https://github.com/tusharpandey13))
+
 ## [v2.1.3](https://github.com/auth0/auth0-spa-js/tree/v2.1.3) (2023-12-11)
+
 [Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.1.2...v2.1.3)
 
 **Changed**
+
 - feat: support for hosted token worker [\#1208](https://github.com/auth0/auth0-spa-js/pull/1208) ([DJMcK](https://github.com/DJMcK))
 
 ## [v2.1.2](https://github.com/auth0/auth0-spa-js/tree/v2.1.2) (2023-08-21)
+
 [Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.1.1...v2.1.2)
 
 **Fixed**
+
 - Ensure organization cookie is set when no organization was set [\#1123](https://github.com/auth0/auth0-spa-js/pull/1123) ([frederikprijck](https://github.com/frederikprijck))
 
 ## [v2.1.1](https://github.com/auth0/auth0-spa-js/tree/v2.1.1) (2023-07-18)
+
 [Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.1.0...v2.1.1)
 
 **Changed**
+
 - Do not lowercase org_name claim [\#1117](https://github.com/auth0/auth0-spa-js/pull/1117) ([frederikprijck](https://github.com/frederikprijck))
 
 ## [v2.1.0](https://github.com/auth0/auth0-spa-js/tree/v2.1.0) (2023-07-13)
+
 [Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.0.8...v2.1.0)
 
 **Added**
+
 - Support Organization Name [\#1113](https://github.com/auth0/auth0-spa-js/pull/1113) ([frederikprijck](https://github.com/frederikprijck))
 
 **Fixed**
+
 - Ensure AMR claim is set to an array of strings [\#1112](https://github.com/auth0/auth0-spa-js/pull/1112) ([frederikprijck](https://github.com/frederikprijck))
 
 ## [v2.0.8](https://github.com/auth0/auth0-spa-js/tree/v2.0.8) (2023-06-14)
+
 [Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.0.7...v2.0.8)
 
 **Changed**
+
 - Lazily retrieve transaction from transaction storage [\#1108](https://github.com/auth0/auth0-spa-js/pull/1108) ([frederikprijck](https://github.com/frederikprijck))
 
 ## [v2.0.7](https://github.com/auth0/auth0-spa-js/tree/v2.0.7) (2023-06-02)
+
 [Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.0.6...v2.0.7)
 
 **Changed**
+
 - Make TransactionManager use CookieDomain [\#1105](https://github.com/auth0/auth0-spa-js/pull/1105) ([ZdravkoDonev-gtmhub](https://github.com/ZdravkoDonev-gtmhub))
 
 ## [v2.0.6](https://github.com/auth0/auth0-spa-js/tree/v2.0.6) (2023-05-30)
+
 [Full Changelog](https://github.com/auth0/auth0-spa-js/compare/v2.0.5...v2.0.6)
 
 **Fixed**
+
 - Fix missing invalid state errors with Generic Error [\#1102](https://github.com/auth0/auth0-spa-js/pull/1102) ([frederikprijck](https://github.com/frederikprijck))
 
 ## [v2.0.5](https://github.com/auth0/auth0-spa-js/tree/v2.0.5) (2023-05-22)

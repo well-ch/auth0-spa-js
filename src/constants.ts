@@ -44,6 +44,18 @@ export const INVALID_REFRESH_TOKEN_ERROR_MESSAGE = 'invalid refresh token';
 /**
  * @ignore
  */
+export const USER_BLOCKED_ERROR_MESSAGE = 'user is blocked';
+
+/**
+ * @ignore
+ * The error_description returned by the /authorize endpoint when MFA is required
+ * but prompt=none prevents interaction (iframe silent auth flow).
+ */
+export const MFA_STEP_UP_ERROR_DESCRIPTION = 'Multifactor authentication required';
+
+/**
+ * @ignore
+ */
 export const DEFAULT_SCOPE = 'openid profile email';
 
 /**
@@ -60,3 +72,5 @@ export const DEFAULT_AUTH0_CLIENT = {
 };
 
 export const DEFAULT_NOW_PROVIDER = () => Date.now();
+
+export const DEFAULT_AUDIENCE = 'default';

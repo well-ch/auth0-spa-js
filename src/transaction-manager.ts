@@ -2,7 +2,7 @@ import { ClientStorage } from './storage';
 
 const TRANSACTION_STORAGE_KEY_PREFIX = 'a0.spajs.txs';
 
-interface Transaction {
+export interface LoginTransaction {
   nonce: string;
   scope: string;
   audience: string;
@@ -11,6 +11,19 @@ interface Transaction {
   redirect_uri?: string;
   organization?: string;
   state?: string;
+  response_type: 'code';
+}
+
+export interface ConnectAccountTransaction {
+  appState?: any;
+  audience?: string;
+  auth_session: string;
+  code_verifier: string;
+  redirect_uri: string;
+  scope?: string;
+  state: string;
+  connection: string;
+  response_type: 'connect_code';
 }
 
 export class TransactionManager {
@@ -24,14 +37,14 @@ export class TransactionManager {
     this.storageKey = `${TRANSACTION_STORAGE_KEY_PREFIX}.${this.clientId}`;
   }
 
-  public async create(transaction: Transaction) {
+  public async create<T extends Object = LoginTransaction>(transaction: T): Promise<T | undefined> {
     await this.storage.save(this.storageKey, transaction, {
       daysUntilExpire: 1,
       cookieDomain: this.cookieDomain
     });
   }
 
-  public async get(): Promise<Transaction | undefined> {
+  public get<T extends Object = LoginTransaction>(): Promise<T | undefined> {
     return this.storage.get(this.storageKey);
   }
 
