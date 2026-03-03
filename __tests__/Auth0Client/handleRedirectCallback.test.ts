@@ -30,7 +30,8 @@ import {
 } from '../constants';
 
 import { DEFAULT_AUTH0_CLIENT } from '../../src/constants';
-import { GenericError } from '../../src';
+import { Auth0Client, ConnectError, GenericError } from '../../src';
+import { CompleteResponse } from '../../src/MyAccountApiClient';
 
 jest.mock('es-cookie');
 jest.mock('../../src/jwt');
@@ -520,6 +521,159 @@ describe('Auth0Client', () => {
       expect(error.message).toBe(
         'There are no query params available for parsing.'
       );
+    });
+  });
+
+  describe('handleRedirectCallback with connect_code', () => {
+    let client: Auth0Client;
+    let myAccountApi: any;
+    let url: URL;
+    let completeResponse: CompleteResponse;
+    let transaction: any;
+
+    beforeEach(() => {
+      url = new URL('https://example.com/callback');
+      client = new Auth0Client({ domain: 'test', clientId: 'abc', authorizationParams: {} });
+      transaction = {
+        state: 'state123',
+        code_verifier: 'verifier',
+        auth_session: 'session',
+        redirect_uri: 'uri',
+        appState: { foo: 'bar' },
+        response_type: 'connect_code',
+        connection: 'google-oauth2'
+      };
+      completeResponse = {
+        id: 'account_123',
+        connection: 'google-oauth2',
+        access_type: 'offline',
+        scopes: ['email', 'profile'],
+        created_at: '2024-06-01T12:00:00Z',
+        expires_at: '2025-06-01T12:00:00Z'
+      };
+      myAccountApi = {
+        completeAccount: jest.fn().mockResolvedValue(completeResponse)
+      };
+      (client as any).myAccountApi = myAccountApi;
+      (client as any).transactionManager = {
+        get: jest.fn(),
+        remove: jest.fn()
+      };
+    });
+
+    it('returns appState and data on success', async () => {
+      (client as any).transactionManager.get.mockReturnValue(transaction);
+
+      url.searchParams.set('state', 'state123');
+      url.searchParams.set('connect_code', 'code');
+
+      const result = await client.handleRedirectCallback(url.toString());
+
+      expect(myAccountApi.completeAccount).toHaveBeenCalledWith({
+        auth_session: 'session',
+        connect_code: 'code',
+        redirect_uri: 'uri',
+        code_verifier: 'verifier',
+      });
+      expect(result).toEqual({ appState: { foo: 'bar' },
+        response_type: 'connect_code', ...completeResponse });
+      expect((client as any).transactionManager.remove).toHaveBeenCalled();
+    });
+
+    it('throws GenericError if transaction is missing', async () => {
+      (client as any).transactionManager.get.mockReturnValue(undefined);
+      url.searchParams.set('state', 'state123');
+      url.searchParams.set('connect_code', 'code');
+      await expect(client.handleRedirectCallback(url.toString())).rejects.toThrow(GenericError);
+    });
+
+    it('throws GenericError if connect_code is missing', async () => {
+      (client as any).transactionManager.get.mockReturnValue(transaction);
+      url.searchParams.set('state', 'state123');
+      await expect(client.handleRedirectCallback(url.toString())).rejects.toThrow(GenericError);
+    });
+
+    it('throws ConnectError if error is present', async () => {
+      (client as any).transactionManager.get.mockReturnValue(transaction);
+
+      url.searchParams.set('error', 'err');
+      url.searchParams.set('error_description', 'desc');
+      url.searchParams.set('state', 'state123');
+      await expect(client.handleRedirectCallback(url.toString())).rejects.toThrow(ConnectError);
+      expect((client as any).transactionManager.remove).toHaveBeenCalled();
+    });
+
+    it('throws GenericError on state mismatch', async () => {
+      (client as any).transactionManager.get.mockReturnValue(transaction);
+
+      url.searchParams.set('state', 'wrong-state');
+      url.searchParams.set('connect_code', 'code');
+      await expect(client.handleRedirectCallback(url.toString())).rejects.toThrow(GenericError);
+    });
+
+    it('throws MyAccountApiError if completeAccount fails', async () => {
+      (client as any).transactionManager.get.mockReturnValue(transaction);
+      const apiError = new Error('API error');
+      myAccountApi.completeAccount.mockRejectedValue(apiError);
+
+      url.searchParams.set('state', 'state123');
+      url.searchParams.set('connect_code', 'code');
+      await expect(client.handleRedirectCallback(url.toString())).rejects.toThrow('API error');
+      expect((client as any).transactionManager.remove).toHaveBeenCalled();
+    });
+  });
+
+  describe('handleRedirectCallback - user switching detection', () => {
+    it('should clear cache when different user logs in via redirect', async () => {
+      const auth0 = setup();
+
+      jest.spyOn(auth0['cacheManager'], 'clear');
+      jest.spyOn(auth0['userCache'], 'remove');
+
+      // First login as default user
+      await loginWithRedirect(auth0);
+
+      const cachedUser1 = await auth0.getUser();
+      expect(cachedUser1.sub).toBe('me');
+
+      // Configure mockVerify to return a different user for second login
+      mockVerify.mockReturnValueOnce({
+        claims: {
+          sub: 'user2',
+          name: 'User 2',
+          exp: Date.now() / 1000 + 86400
+        },
+        user: {
+          sub: 'user2',
+          name: 'User 2'
+        }
+      });
+
+      // Second login as different user
+      await loginWithRedirect(auth0);
+
+      // Verify cache was cleared
+      expect(auth0['cacheManager'].clear).toHaveBeenCalledWith(TEST_CLIENT_ID);
+      expect(auth0['userCache'].remove).toHaveBeenCalledWith('@@user@@');
+
+      // Verify new user is cached
+      const cachedUser2 = await auth0.getUser();
+      expect(cachedUser2.sub).toBe('user2');
+    });
+
+    it('should not clear cache when same user logs in again', async () => {
+      const auth0 = setup();
+
+      jest.spyOn(auth0['cacheManager'], 'clear');
+
+      // First login
+      await loginWithRedirect(auth0);
+
+      // Second login with same user
+      await loginWithRedirect(auth0);
+
+      // Verify cache was NOT cleared
+      expect(auth0['cacheManager'].clear).not.toHaveBeenCalled();
     });
   });
 });

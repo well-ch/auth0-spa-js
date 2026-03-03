@@ -8,7 +8,7 @@ export * from './global';
 /**
  * Asynchronously creates the Auth0Client instance and calls `checkSession`.
  *
- * **Note:** There are caveats to using this in a private browser tab, which may not silently authenticae
+ * **Note:** There are caveats to using this in a private browser tab, which may not silently authenticate
  * a user on page refresh. Please see [the checkSession docs](https://auth0.github.io/auth0-spa-js/classes/Auth0Client.html#checksession) for more info.
  *
  * @param options The client options
@@ -23,14 +23,39 @@ export async function createAuth0Client(options: Auth0ClientOptions) {
 export { Auth0Client };
 
 export {
+  ConnectError,
   GenericError,
   AuthenticationError,
   TimeoutError,
   PopupTimeoutError,
   PopupCancelledError,
+  PopupOpenError,
   MfaRequiredError,
-  MissingRefreshTokenError
+  MissingRefreshTokenError,
+  UseDpopNonceError
 } from './errors';
+
+export {
+  MfaError,
+  MfaListAuthenticatorsError,
+  MfaEnrollmentError,
+  MfaChallengeError,
+  MfaVerifyError,
+  MfaEnrollmentFactorsError
+} from './mfa/errors';
+
+export { MfaApiClient } from './mfa';
+
+export type {
+  MfaFactorType,
+  EnrollParams,
+  EnrollOtpParams,
+  EnrollSmsParams,
+  EnrollVoiceParams,
+  EnrollEmailParams,
+  EnrollPushParams,
+  VerifyParams
+} from './mfa';
 
 export {
   ICache,
@@ -45,3 +70,13 @@ export {
   CacheKey,
   CacheKeyData
 } from './cache';
+
+export type {
+  FetcherConfig,
+  Fetcher,
+  CustomFetchMinimalOutput
+} from './fetcher';
+
+export { MyAccountApiError } from './MyAccountApiClient';
+
+export { CustomTokenExchangeOptions } from './TokenExchange';

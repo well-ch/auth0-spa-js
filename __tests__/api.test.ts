@@ -5,12 +5,15 @@ import {
 
 import version from '../src/version';
 import { oauthToken } from '../src/api';
+import * as http from '../src/http';
+import * as dpopUtils from '../src/dpop/utils';
 
 // @ts-ignore
 import Worker from '../src/worker/token.worker';
 import { MessageChannel } from 'worker_threads';
-import { TEST_REDIRECT_URI } from './constants';
+import { TEST_CLIENT_ID, TEST_DOMAIN } from './constants';
 import { expect } from '@jest/globals';
+import { Dpop } from '../src/dpop/dpop';
 (<any>global).MessageChannel = MessageChannel;
 
 jest.mock('../src/worker/token.worker');
@@ -36,11 +39,12 @@ describe('oauthToken', () => {
   });
 
   it('calls oauth/token with the correct url', async () => {
-    mockFetch.mockReturnValue(
-      new Promise(res =>
-        res({ ok: true, json: () => new Promise(ress => ress(true)) })
-      )
-    );
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(true),
+      headers: new Headers()
+    });
+
     const auth0Client = {
       name: 'auth0-spa-js',
       version: version
@@ -70,11 +74,11 @@ describe('oauthToken', () => {
   });
 
   it('calls oauth/token with a worker with the correct url', async () => {
-    mockFetch.mockReturnValue(
-      new Promise(res =>
-        res({ ok: true, json: () => new Promise(ress => ress(true)) })
-      )
-    );
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(true),
+      headers: new Headers()
+    });
 
     const worker = new Worker();
     const spy = jest.spyOn(worker, 'postMessage');
@@ -147,14 +151,11 @@ describe('oauthToken', () => {
       error_description: 'the-error-description'
     };
 
-    mockFetch.mockReturnValue(
-      new Promise(res =>
-        res({
-          ok: false,
-          json: () => new Promise(ress => ress(theError))
-        })
-      )
-    );
+    mockFetch.mockResolvedValue({
+      ok: false,
+      json: () => Promise.resolve(theError),
+      headers: new Headers()
+    });
 
     try {
       await oauthToken({
@@ -173,14 +174,11 @@ describe('oauthToken', () => {
   });
 
   it('handles error without error response', async () => {
-    mockFetch.mockReturnValue(
-      new Promise(res =>
-        res({
-          ok: false,
-          json: () => new Promise(ress => ress(false))
-        })
-      )
-    );
+    mockFetch.mockResolvedValue({
+      ok: false,
+      json: () => Promise.resolve(false),
+      headers: new Headers()
+    });
 
     try {
       await oauthToken({
@@ -231,14 +229,13 @@ describe('oauthToken', () => {
     // with the failure in the body.
     // https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API
     mockFetch
-      .mockReturnValueOnce(Promise.reject(new Error('Network failure')))
-      .mockReturnValueOnce(Promise.reject(new Error('Network failure')))
-      .mockReturnValue(
-        Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ access_token: 'access-token' })
-        })
-      );
+      .mockResolvedValueOnce(new Error('Network failure'))
+      .mockResolvedValueOnce(new Error('Network failure'))
+      .mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ access_token: 'access-token' }),
+        headers: new Headers()
+      });
 
     const result = await oauthToken({
       baseUrl: 'https://test.com',
@@ -304,7 +301,8 @@ describe('oauthToken', () => {
   it('retries the request in the event of a timeout', async () => {
     const fetchResult = {
       ok: true,
-      json: () => Promise.resolve({ access_token: 'access-token' })
+      json: () => Promise.resolve({ access_token: 'access-token' }),
+      headers: new Headers()
     };
 
     mockFetch.mockReturnValueOnce(
@@ -328,5 +326,149 @@ describe('oauthToken', () => {
     expect(result.access_token).toBe('access-token');
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(abortController.abort).toHaveBeenCalled();
+  });
+
+  it('passes the dpop handle when supported', async () => {
+    jest.spyOn(dpopUtils, 'isGrantTypeSupported').mockReturnValue(true);
+
+    jest.spyOn(http, 'getJSON').mockResolvedValue({});
+
+    const dpop = new Dpop(TEST_CLIENT_ID);
+
+    await oauthToken({
+      baseUrl: `https://${TEST_DOMAIN}`,
+      client_id: TEST_CLIENT_ID,
+      grant_type: 'authorization_code',
+      auth0Client: {},
+      useMrrt: false,
+      dpop
+    });
+
+    expect(jest.mocked(http.getJSON).mock.calls[0][8]).toBe(dpop);
+  });
+
+  it('does not pass the dpop handle when unsupported', async () => {
+    jest.spyOn(dpopUtils, 'isGrantTypeSupported').mockReturnValue(false);
+
+    jest.spyOn(http, 'getJSON').mockResolvedValue({});
+
+    await oauthToken({
+      baseUrl: `https://${TEST_DOMAIN}`,
+      client_id: TEST_CLIENT_ID,
+      grant_type: 'authorization_code',
+      auth0Client: {},
+      dpop: new Dpop(TEST_CLIENT_ID)
+    });
+
+    expect(jest.mocked(http.getJSON).mock.calls[0][7]).toBeUndefined();
+  });
+
+  describe('auth0Client with env field', () => {
+    beforeEach(() => {
+      // Ensure http.getJSON is not mocked for these tests
+      jest.restoreAllMocks();
+      const httpModule = require('../src/http');
+      httpModule.createAbortController = jest.fn(() => abortController);
+    });
+
+    it('should include env field in Auth0-Client header for token endpoint', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({}),
+        headers: new Headers()
+      });
+
+      const auth0Client = {
+        name: 'test-sdk',
+        version: '1.0.0',
+        env: {
+          framework: 'angular',
+          frameworkVersion: '17.0.0'
+        }
+      };
+
+      await oauthToken({
+        baseUrl: `https://${TEST_DOMAIN}`,
+        client_id: TEST_CLIENT_ID,
+        grant_type: 'authorization_code',
+        auth0Client
+      });
+
+      // Verify that env field is included in the Auth0-Client header
+      expect(mockFetch).toHaveBeenCalledWith(
+        `https://${TEST_DOMAIN}/oauth/token`,
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'Auth0-Client': btoa(JSON.stringify(auth0Client))
+          })
+        })
+      );
+    });
+
+    it('should include env field in Auth0-Client header even with large env object', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({}),
+        headers: new Headers()
+      });
+
+      const auth0Client = {
+        name: 'auth0-spa-js',
+        version: '2.11.3',
+        env: {
+          framework: 'angular',
+          frameworkVersion: '17.0.0',
+          'angular/core': '17.0.0',
+          'angular/common': '17.0.0'
+        }
+      };
+
+      await oauthToken({
+        baseUrl: `https://${TEST_DOMAIN}`,
+        client_id: TEST_CLIENT_ID,
+        grant_type: 'authorization_code',
+        auth0Client
+      });
+
+      // Verify that env field is included in the Auth0-Client header
+      expect(mockFetch).toHaveBeenCalledWith(
+        `https://${TEST_DOMAIN}/oauth/token`,
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'Auth0-Client': btoa(JSON.stringify(auth0Client))
+          })
+        })
+      );
+    });
+
+    it('should handle auth0Client without env field', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({}),
+        headers: new Headers()
+      });
+
+      const auth0Client = {
+        name: 'test-sdk',
+        version: '1.0.0'
+      };
+
+      await oauthToken({
+        baseUrl: `https://${TEST_DOMAIN}`,
+        client_id: TEST_CLIENT_ID,
+        grant_type: 'authorization_code',
+        auth0Client
+      });
+
+      // Verify that the Auth0-Client header is set without env field
+      expect(mockFetch).toHaveBeenCalledWith(
+        `https://${TEST_DOMAIN}/oauth/token`,
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'Auth0-Client': btoa(JSON.stringify(auth0Client))
+          })
+        })
+      );
+    });
   });
 });

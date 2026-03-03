@@ -1,5 +1,3 @@
-import Lock from 'browser-tabs-lock';
-
 import {
   createQueryParams,
   runPopup,
@@ -13,12 +11,15 @@ import {
   openPopup,
   getDomain,
   getTokenIssuer,
-  parseNumber
+  parseNumber,
+  stripAuth0Client
 } from './utils';
+
+import { getLockManager, type ILockManager } from './lock';
 
 import { oauthToken } from './api';
 
-import { getUniqueScopes } from './scope';
+import { injectDefaultScopes, scopesToRequest } from './scope';
 
 import {
   InMemoryCache,
@@ -31,12 +32,16 @@ import {
   DecodedToken
 } from './cache';
 
-import { TransactionManager } from './transaction-manager';
+import { ConnectAccountTransaction, LoginTransaction, TransactionManager } from './transaction-manager';
 import { verify as verifyIdToken } from './jwt';
 import {
   AuthenticationError,
+  ConnectError,
   GenericError,
+  MfaRequiredError,
   MissingRefreshTokenError,
+  MissingScopesError,
+  PopupOpenError,
   TimeoutError
 } from './errors';
 
@@ -52,12 +57,15 @@ import {
   DEFAULT_POPUP_CONFIG_OPTIONS,
   DEFAULT_AUTHORIZE_TIMEOUT_IN_SECONDS,
   MISSING_REFRESH_TOKEN_ERROR_MESSAGE,
+  MFA_STEP_UP_ERROR_DESCRIPTION,
   DEFAULT_SCOPE,
   DEFAULT_SESSION_CHECK_EXPIRY_DAYS,
   DEFAULT_AUTH0_CLIENT,
   INVALID_REFRESH_TOKEN_ERROR_MESSAGE,
+  USER_BLOCKED_ERROR_MESSAGE,
   DEFAULT_NOW_PROVIDER,
-  DEFAULT_FETCH_TIMEOUT_MS
+  DEFAULT_FETCH_TIMEOUT_MS,
+  DEFAULT_AUDIENCE
 } from './constants';
 
 import {
@@ -76,7 +84,13 @@ import {
   User,
   IdToken,
   GetTokenSilentlyVerboseResponse,
-  TokenEndpointResponse
+  TokenEndpointResponse,
+  AuthenticationResult,
+  ConnectAccountRedirectResult,
+  RedirectConnectAccountOptions,
+  ResponseType,
+  ClientAuthorizationParams,
+  ClientConfiguration
 } from './global';
 
 // @ts-ignore
@@ -88,10 +102,25 @@ import {
   buildOrganizationHintCookieName,
   cacheFactory,
   getAuthorizeParams,
-  GET_TOKEN_SILENTLY_LOCK_KEY,
+  buildGetTokenSilentlyLockKey,
+  buildIframeLockKey,
   OLD_IS_AUTHENTICATED_COOKIE_NAME,
-  patchOpenUrlWithOnRedirect
+  patchOpenUrlWithOnRedirect,
+  getScopeToRequest,
+  allScopesAreIncluded,
+  isRefreshWithMrrt,
+  getMissingScopes
 } from './Auth0Client.utils';
+import { CustomTokenExchangeOptions } from './TokenExchange';
+import { Dpop } from './dpop/dpop';
+import {
+  Fetcher,
+  type FetcherConfig,
+  type CustomFetchMinimalOutput
+} from './fetcher';
+import { MyAccountApiClient } from './MyAccountApiClient';
+import { MfaApiClient } from './mfa';
+import { AuthClient as Auth0AuthJsClient } from '@auth0/auth0-auth-js';
 
 /**
  * @ignore
@@ -104,31 +133,41 @@ type GetTokenSilentlyResult = TokenEndpointResponse & {
 };
 
 /**
- * @ignore
- */
-const lock = new Lock();
-
-/**
  * Auth0 SDK for Single Page Applications using [Authorization Code Grant Flow with PKCE](https://auth0.com/docs/api-auth/tutorials/authorization-code-grant-pkce).
  */
 export class Auth0Client {
   private readonly transactionManager: TransactionManager;
   private readonly cacheManager: CacheManager;
+  private readonly lockManager: ILockManager;
   private readonly domainUrl: string;
   private readonly tokenIssuer: string;
-  private readonly scope: string;
+  private readonly scope: Record<string, string>;
   private readonly cookieStorage: ClientStorage;
+  private readonly dpop: Dpop | undefined;
   private readonly sessionCheckExpiryDays: number;
   private readonly orgHintCookieName: string;
   private readonly isAuthenticatedCookieName: string;
   private readonly nowProvider: () => number | Promise<number>;
   private readonly httpTimeoutMs: number;
   private readonly options: Auth0ClientOptions & {
-    authorizationParams: AuthorizationParams;
+    authorizationParams: ClientAuthorizationParams,
   };
   private readonly userCache: ICache = new InMemoryCache().enclosedCache;
+  private readonly myAccountApi: MyAccountApiClient;
+
+  /**
+   * MFA API client for multi-factor authentication operations.
+   *
+   * Provides methods for:
+   * - Listing enrolled authenticators
+   * - Enrolling new authenticators (OTP, SMS, Voice, Push, Email)
+   * - Initiating MFA challenges
+   * - Verifying MFA challenges
+   */
+  public readonly mfa: MfaApiClient;
 
   private worker?: Worker;
+  private readonly authJsClient: Auth0AuthJsClient;
 
   private readonly defaultOptions: Partial<Auth0ClientOptions> = {
     authorizationParams: {
@@ -149,6 +188,8 @@ export class Auth0Client {
     };
 
     typeof window !== 'undefined' && validateCrypto();
+
+    this.lockManager = getLockManager();
 
     if (options.cache && options.cacheLocation) {
       console.warn(
@@ -199,9 +240,9 @@ export class Auth0Client {
     // 1. Always include `openid`
     // 2. Include the scopes provided in `authorizationParams. This defaults to `profile email`
     // 3. Add `offline_access` if `useRefreshTokens` is enabled
-    this.scope = getUniqueScopes(
-      'openid',
+    this.scope = injectDefaultScopes(
       this.options.authorizationParams.scope,
+      'openid',
       this.options.useRefreshTokens ? 'offline_access' : ''
     );
 
@@ -221,8 +262,37 @@ export class Auth0Client {
       this.nowProvider
     );
 
+    this.dpop = this.options.useDpop
+      ? new Dpop(this.options.clientId)
+      : undefined;
+
     this.domainUrl = getDomain(this.options.domain);
     this.tokenIssuer = getTokenIssuer(this.options.issuer, this.domainUrl);
+
+    const myAccountApiIdentifier = `${this.domainUrl}/me/`;
+    const myAccountFetcher = this.createFetcher({
+      ...(this.options.useDpop && { dpopNonceId: '__auth0_my_account_api__' }),
+      getAccessToken: () =>
+        this.getTokenSilently({
+          authorizationParams: {
+            scope: 'create:me:connected_accounts',
+            audience: myAccountApiIdentifier
+          },
+          detailedResponse: true
+        })
+    });
+    this.myAccountApi = new MyAccountApiClient(
+      myAccountFetcher,
+      myAccountApiIdentifier
+    );
+
+    // Initialize auth-js client foundational Oauth feature support
+    this.authJsClient = new Auth0AuthJsClient({
+      domain: this.options.domain,
+      clientId: this.options.clientId,
+    });
+    this.mfa = new MfaApiClient(this.authJsClient.mfa, this);
+
 
     // Don't use web workers unless using refresh tokens in memory
     if (
@@ -239,9 +309,35 @@ export class Auth0Client {
     }
   }
 
+  /**
+   * Returns a readonly copy of the initialization configuration.
+   *
+   * @returns An object containing domain and clientId
+   *
+   * @example
+   * ```typescript
+   * const auth0 = new Auth0Client({
+   *   domain: 'tenant.auth0.com',
+   *   clientId: 'abc123'
+   * });
+   *
+   * const config = auth0.getConfiguration();
+   * // { domain: 'tenant.auth0.com', clientId: 'abc123' }
+   * ```
+   */
+  public getConfiguration(): Readonly<ClientConfiguration> {
+    return Object.freeze({
+      domain: this.options.domain,
+      clientId: this.options.clientId
+    });
+  }
+
   private _url(path: string) {
+    const auth0ClientObj = this.options.auth0Client || DEFAULT_AUTH0_CLIENT;
+    // Strip env from auth0Client for /authorize to prevent query param truncation
+    const strippedAuth0Client = stripAuth0Client(auth0ClientObj, true);
     const auth0Client = encodeURIComponent(
-      btoa(JSON.stringify(this.options.auth0Client || DEFAULT_AUTH0_CLIENT))
+      btoa(JSON.stringify(strippedAuth0Client))
     );
     return `${this.domainUrl}${path}&auth0Client=${auth0Client}`;
   }
@@ -300,6 +396,7 @@ export class Auth0Client {
     const code_verifier = createRandomString();
     const code_challengeBuffer = await sha256(code_verifier);
     const code_challenge = bufferToBase64UrlEncoded(code_challengeBuffer);
+    const thumbprint = await this.dpop?.calculateThumbprint();
 
     const params = getAuthorizeParams(
       this.options,
@@ -309,9 +406,10 @@ export class Auth0Client {
       nonce,
       code_challenge,
       authorizationParams.redirect_uri ||
-        this.options.authorizationParams.redirect_uri ||
-        fallbackRedirectUri,
-      authorizeOptions?.response_mode
+      this.options.authorizationParams.redirect_uri ||
+      fallbackRedirectUri,
+      authorizeOptions?.response_mode,
+      thumbprint
     );
 
     const url = this._authorizeUrl(params);
@@ -320,7 +418,7 @@ export class Auth0Client {
       nonce,
       code_verifier,
       scope: params.scope,
-      audience: params.audience || 'default',
+      audience: params.audience || DEFAULT_AUDIENCE,
       redirect_uri: params.redirect_uri,
       state,
       url
@@ -361,9 +459,7 @@ export class Auth0Client {
       config.popup = openPopup('');
 
       if (!config.popup) {
-        throw new Error(
-          'Unable to open a popup for loginWithPopup - window.open returned `null`'
-        );
+        throw new PopupOpenError();
       }
     }
 
@@ -461,9 +557,10 @@ export class Auth0Client {
       urlOptions.authorizationParams || {}
     );
 
-    await this.transactionManager.create({
+    await this.transactionManager.create<LoginTransaction>({
       ...transaction,
       appState,
+      response_type: ResponseType.Code,
       ...(organization && { organization })
     });
 
@@ -484,24 +581,56 @@ export class Auth0Client {
    */
   public async handleRedirectCallback<TAppState = any>(
     url: string = window.location.href
-  ): Promise<RedirectLoginResult<TAppState>> {
+  ): Promise<
+    RedirectLoginResult<TAppState> | ConnectAccountRedirectResult<TAppState>
+  > {
     const queryStringFragments = url.split('?').slice(1);
 
     if (queryStringFragments.length === 0) {
       throw new Error('There are no query params available for parsing.');
     }
 
-    const { state, code, error, error_description } = parseAuthenticationResult(
-      queryStringFragments.join('')
-    );
-
-    const transaction = await this.transactionManager.get();
+    const transaction = await this.transactionManager.get<
+      LoginTransaction | ConnectAccountTransaction
+    >();
 
     if (!transaction) {
       throw new GenericError('missing_transaction', 'Invalid state');
     }
 
     await this.transactionManager.remove();
+
+    const authenticationResult = parseAuthenticationResult(
+      queryStringFragments.join('')
+    );
+
+    if (transaction.response_type === ResponseType.ConnectCode) {
+      return this._handleConnectAccountRedirectCallback<TAppState>(
+        authenticationResult,
+        transaction
+      );
+    }
+    return this._handleLoginRedirectCallback<TAppState>(
+      authenticationResult,
+      transaction
+    );
+  }
+
+  /**
+   * Handles the redirect callback from the login flow.
+   *
+   * @template AppState - The application state persisted from the /authorize redirect.
+   * @param {string} authenticationResult - The parsed authentication result from the URL.
+   * @param {string} transaction - The login transaction.
+   *
+   * @returns {RedirectLoginResult} Resolves with the persisted app state.
+   * @throws {GenericError | Error} If the transaction is missing, invalid, or the code exchange fails.
+   */
+  private async _handleLoginRedirectCallback<TAppState>(
+    authenticationResult: AuthenticationResult,
+    transaction: LoginTransaction
+  ): Promise<RedirectLoginResult<TAppState>> {
+    const { code, state, error, error_description } = authenticationResult;
 
     if (error) {
       throw new AuthenticationError(
@@ -537,7 +666,63 @@ export class Auth0Client {
     );
 
     return {
-      appState: transaction.appState
+      appState: transaction.appState,
+      response_type: ResponseType.Code
+    };
+  }
+
+  /**
+   * Handles the redirect callback from the connect account flow.
+   * This works the same as the redirect from the login flow expect it verifies the `connect_code`
+   * with the My Account API rather than the `code` with the Authorization Server.
+   *
+   * @template AppState - The application state persisted from the connect redirect.
+   * @param {string} connectResult - The parsed connect accounts result from the URL.
+   * @param {string} transaction - The login transaction.
+   * @returns {Promise<ConnectAccountRedirectResult>} The result of the My Account API, including any persisted app state.
+   * @throws {GenericError | MyAccountApiError} If the transaction is missing, invalid, or an error is returned from the My Account API.
+   */
+  private async _handleConnectAccountRedirectCallback<TAppState>(
+    connectResult: AuthenticationResult,
+    transaction: ConnectAccountTransaction
+  ): Promise<ConnectAccountRedirectResult<TAppState>> {
+    const { connect_code, state, error, error_description } = connectResult;
+
+    if (error) {
+      throw new ConnectError(
+        error,
+        error_description || error,
+        transaction.connection,
+        state,
+        transaction.appState
+      );
+    }
+
+    if (!connect_code) {
+      throw new GenericError('missing_connect_code', 'Missing connect code');
+    }
+
+    if (
+      !transaction.code_verifier ||
+      !transaction.state ||
+      !transaction.auth_session ||
+      !transaction.redirect_uri ||
+      transaction.state !== state
+    ) {
+      throw new GenericError('state_mismatch', 'Invalid state');
+    }
+
+    const data = await this.myAccountApi.completeAccount({
+      auth_session: transaction.auth_session,
+      connect_code,
+      redirect_uri: transaction.redirect_uri,
+      code_verifier: transaction.code_verifier
+    });
+
+    return {
+      ...data,
+      appState: transaction.appState,
+      response_type: ResponseType.ConnectCode,
     };
   }
 
@@ -583,7 +768,7 @@ export class Auth0Client {
 
     try {
       await this.getTokenSilently(options);
-    } catch (_) {}
+    } catch (_) { }
   }
 
   /**
@@ -651,7 +836,11 @@ export class Auth0Client {
       authorizationParams: {
         ...this.options.authorizationParams,
         ...options.authorizationParams,
-        scope: getUniqueScopes(this.scope, options.authorizationParams?.scope)
+        scope: scopesToRequest(
+          this.scope,
+          options.authorizationParams?.scope,
+          options.authorizationParams?.audience || this.options.authorizationParams.audience,
+        )
       }
     };
 
@@ -675,8 +864,9 @@ export class Auth0Client {
     if (cacheMode !== 'off') {
       const entry = await this._getEntryFromCache({
         scope: getTokenOptions.authorizationParams.scope,
-        audience: getTokenOptions.authorizationParams.audience || 'default',
-        clientId: this.options.clientId
+        audience: getTokenOptions.authorizationParams.audience || DEFAULT_AUDIENCE,
+        clientId: this.options.clientId,
+        cacheMode,
       });
 
       if (entry) {
@@ -688,21 +878,21 @@ export class Auth0Client {
       return;
     }
 
-    if (
-      await retryPromise(
-        () => lock.acquireLock(GET_TOKEN_SILENTLY_LOCK_KEY, 5000),
-        10
-      )
-    ) {
-      try {
-        window.addEventListener('pagehide', this._releaseLockOnPageHide);
+    // Generate lock key based on client ID and audience for better isolation
+    const lockKey = buildGetTokenSilentlyLockKey(
+      this.options.clientId,
+      getTokenOptions.authorizationParams.audience || 'default'
+    );
 
+    try {
+      return await this.lockManager.runWithLock(lockKey, 5000, async () => {
         // Check the cache a second time, because it may have been populated
         // by a previous call while this call was waiting to acquire the lock.
         if (cacheMode !== 'off') {
           const entry = await this._getEntryFromCache({
             scope: getTokenOptions.authorizationParams.scope,
-            audience: getTokenOptions.authorizationParams.audience || 'default',
+            audience:
+              getTokenOptions.authorizationParams.audience || DEFAULT_AUDIENCE,
             clientId: this.options.clientId
           });
 
@@ -715,21 +905,89 @@ export class Auth0Client {
           ? await this._getTokenUsingRefreshToken(getTokenOptions)
           : await this._getTokenFromIFrame(getTokenOptions);
 
-        const { id_token, access_token, oauthTokenScope, expires_in } =
+        const { id_token, token_type, access_token, oauthTokenScope, expires_in } =
           authResult;
 
         return {
           id_token,
+          token_type,
           access_token,
           ...(oauthTokenScope ? { scope: oauthTokenScope } : null),
           expires_in
         };
-      } finally {
-        await lock.releaseLock(GET_TOKEN_SILENTLY_LOCK_KEY);
-        window.removeEventListener('pagehide', this._releaseLockOnPageHide);
+      });
+    } catch (error) {
+      // Lock is already released - safe to open popup
+      if (this._isInteractiveError(error) && this.options.interactiveErrorHandler === 'popup') {
+        return await this._handleInteractiveErrorWithPopup(getTokenOptions);
       }
-    } else {
-      throw new TimeoutError();
+      throw error;
+    }
+  }
+
+  /**
+   * Checks if an error should be handled by the interactive error handler.
+   * Matches:
+   * - MfaRequiredError (refresh token path, error='mfa_required')
+   * - GenericError from iframe path (error='login_required',
+   *   error_description='Multifactor authentication required')
+   * Extensible for future interactive error types.
+   */
+  private _isInteractiveError(
+    error: unknown
+  ): error is MfaRequiredError | GenericError {
+    return error instanceof MfaRequiredError || (error instanceof GenericError && this._isIframeMfaError(error));
+  }
+
+  /**
+   * Checks if a login_required error from the iframe flow is actually
+   * an MFA step-up requirement. The /authorize endpoint returns
+   * error='login_required' with error_description='Multifactor authentication required'
+   * when MFA is needed but prompt=none prevents interaction.
+   */
+  private _isIframeMfaError(error: GenericError): boolean {
+    return (
+      error.error === 'login_required' &&
+      error.error_description === MFA_STEP_UP_ERROR_DESCRIPTION
+    );
+  }
+
+  /**
+   * Handles MFA errors by opening a popup to complete authentication,
+   * then reads the resulting token from cache.
+   */
+  private async _handleInteractiveErrorWithPopup(
+    options: GetTokenSilentlyOptions & {
+      authorizationParams: AuthorizationParams & { scope: string };
+    }
+  ): Promise<GetTokenSilentlyVerboseResponse> {
+    try {
+      await this.loginWithPopup({
+        authorizationParams: options.authorizationParams
+      });
+
+      const entry = await this._getEntryFromCache({
+        scope: options.authorizationParams.scope,
+        audience:
+          options.authorizationParams.audience || DEFAULT_AUDIENCE,
+        clientId: this.options.clientId
+      });
+
+      if (!entry) {
+        throw new GenericError(
+          'interactive_handler_cache_miss',
+          'Token not found in cache after interactive authentication'
+        );
+      }
+
+      return entry;
+    } catch (error) {
+      // Expected errors (all GenericError subclasses):
+      // - PopupCancelledError: user closed the popup before completing login
+      // - PopupTimeoutError: popup did not complete within the allowed time
+      // - PopupOpenError: popup could not be opened (e.g. blocked by browser)
+      // - GenericError: authentication or cache miss errors
+      throw error;
     }
   }
 
@@ -754,7 +1012,11 @@ export class Auth0Client {
       authorizationParams: {
         ...this.options.authorizationParams,
         ...options.authorizationParams,
-        scope: getUniqueScopes(this.scope, options.authorizationParams?.scope)
+        scope: scopesToRequest(
+          this.scope,
+          options.authorizationParams?.scope,
+          options.authorizationParams?.audience || this.options.authorizationParams.audience
+        )
       }
     };
 
@@ -768,9 +1030,11 @@ export class Auth0Client {
     const cache = await this.cacheManager.get(
       new CacheKey({
         scope: localOptions.authorizationParams.scope,
-        audience: localOptions.authorizationParams.audience || 'default',
+        audience: localOptions.authorizationParams.audience || DEFAULT_AUDIENCE,
         clientId: this.options.clientId
-      })
+      }),
+      undefined,
+      this.options.useMrrt
     );
 
     return cache!.access_token;
@@ -847,6 +1111,8 @@ export class Auth0Client {
     });
     this.userCache.remove(CACHE_KEY_ID_TOKEN_SUFFIX);
 
+    await this.dpop?.clear();
+
     const url = this._buildLogoutUrl(logoutOptions);
 
     if (openUrl) {
@@ -861,79 +1127,119 @@ export class Auth0Client {
       authorizationParams: AuthorizationParams & { scope: string };
     }
   ): Promise<GetTokenSilentlyResult> {
-    const params: AuthorizationParams & { scope: string } = {
-      ...options.authorizationParams,
-      prompt: 'none'
-    };
+    const iframeLockKey = buildIframeLockKey(this.options.clientId);
 
-    const orgHint = await this.cookieStorage.get<string>(
+    // Acquire global iframe lock to serialize iframe authorization flows.
+    // This is necessary because the SDK does not support multiple simultaneous transactions.
+    // Since https://github.com/auth0/auth0-spa-js/pull/1408, when calling
+    // `getTokenSilently()`, the global locking will lock per `audience` instead of locking
+    // only per `client_id`.
+    // This means that calls for different audiences would happen in parallel, which does
+    // not work when using silent authentication (prompt=none) from within the SDK, as that
+    // relies on the same transaction context as a top-level `loginWithRedirect`.
+    // To resolve that, we add a second-level locking that locks only the iframe calls in
+    // the same way as was done before https://github.com/auth0/auth0-spa-js/pull/1408.
+    try {
+      return await this.lockManager.runWithLock(
+        iframeLockKey,
+        5000,
+        async () => {
+          const params: AuthorizationParams & { scope: string } = {
+            ...options.authorizationParams,
+            prompt: 'none'
+          };
+
+          const orgHint = await this.cookieStorage.get<string>(
       this.orgHintCookieName
     );
 
-    if (orgHint && !params.organization) {
-      params.organization = orgHint;
-    }
+          if (orgHint && !params.organization) {
+            params.organization = orgHint;
+          }
 
-    const {
-      url,
-      state: stateIn,
-      nonce: nonceIn,
-      code_verifier,
-      redirect_uri,
-      scope,
-      audience
-    } = await this._prepareAuthorizeUrl(
-      params,
-      { response_mode: 'web_message' },
-      window.location.origin
-    );
+          const {
+            url,
+            state: stateIn,
+            nonce: nonceIn,
+            code_verifier,
+            redirect_uri,
+            scope,
+            audience
+          } = await this._prepareAuthorizeUrl(
+            params,
+            { response_mode: 'web_message' },
+            window.location.origin
+          );
 
-    try {
-      // When a browser is running in a Cross-Origin Isolated context, using iframes is not possible.
-      // It doesn't throw an error but times out instead, so we should exit early and inform the user about the reason.
-      // https://developer.mozilla.org/en-US/docs/Web/API/crossOriginIsolated
-      if ((window as any).crossOriginIsolated) {
-        throw new GenericError(
-          'login_required',
-          'The application is running in a Cross-Origin Isolated context, silently retrieving a token without refresh token is not possible.'
-        );
-      }
+          // When a browser is running in a Cross-Origin Isolated context, using iframes is not possible.
+          // It doesn't throw an error but times out instead, so we should exit early and inform the user about the reason.
+          // https://developer.mozilla.org/en-US/docs/Web/API/crossOriginIsolated
+          if ((window as any).crossOriginIsolated) {
+            throw new GenericError(
+              'login_required',
+              'The application is running in a Cross-Origin Isolated context, silently retrieving a token without refresh token is not possible.'
+            );
+          }
 
-      const authorizeTimeout =
-        options.timeoutInSeconds || this.options.authorizeTimeoutInSeconds;
+          const authorizeTimeout =
+            options.timeoutInSeconds || this.options.authorizeTimeoutInSeconds;
 
-      const codeResult = await runIframe(url, this.domainUrl, authorizeTimeout);
+          // Extract origin from domainUrl, fallback to domainUrl if URL parsing fails
+          let eventOrigin: string;
+          try {
+            eventOrigin = new URL(this.domainUrl).origin;
+          } catch {
+            eventOrigin = this.domainUrl;
+          }
 
-      if (stateIn !== codeResult.state) {
-        throw new GenericError('state_mismatch', 'Invalid state');
-      }
+          const codeResult = await runIframe(
+            url,
+            eventOrigin,
+            authorizeTimeout
+          );
 
-      const tokenResult = await this._requestToken(
-        {
-          ...options.authorizationParams,
-          code_verifier,
-          code: codeResult.code as string,
-          grant_type: 'authorization_code',
-          redirect_uri,
-          timeout: options.authorizationParams.timeout || this.httpTimeoutMs
-        },
-        {
-          nonceIn,
-          organization: params.organization
+          if (stateIn !== codeResult.state) {
+            throw new GenericError('state_mismatch', 'Invalid state');
+          }
+
+          const tokenResult = await this._requestToken(
+            {
+              ...options.authorizationParams,
+              code_verifier,
+              code: codeResult.code as string,
+              grant_type: 'authorization_code',
+              redirect_uri,
+              timeout: options.authorizationParams.timeout || this.httpTimeoutMs
+            },
+            {
+              nonceIn,
+              organization: params.organization
+            }
+          );
+
+          return {
+            ...tokenResult,
+            scope: scope,
+            oauthTokenScope: tokenResult.scope,
+            audience: audience
+          };
         }
       );
-
-      return {
-        ...tokenResult,
-        scope: scope,
-        oauthTokenScope: tokenResult.scope,
-        audience: audience
-      };
     } catch (e) {
       if (e.error === 'login_required') {
-        this.logout({
-          openUrl: false
-        });
+        // When the login_required error is actually an MFA step-up requirement
+        // and the interactive error handler is configured, skip logout so the
+        // session is preserved for the popup flow.
+        const shouldSkipLogoutForMfaStepUp =
+          e instanceof GenericError &&
+          this._isIframeMfaError(e) &&
+          this.options.interactiveErrorHandler === 'popup';
+
+        if (!shouldSkipLogoutForMfaStepUp) {
+          this.logout({
+            openUrl: false
+          });
+        }
       }
       throw e;
     }
@@ -947,9 +1253,11 @@ export class Auth0Client {
     const cache = await this.cacheManager.get(
       new CacheKey({
         scope: options.authorizationParams.scope,
-        audience: options.authorizationParams.audience || 'default',
+        audience: options.authorizationParams.audience || DEFAULT_AUDIENCE,
         clientId: this.options.clientId
-      })
+      }),
+      undefined,
+      this.options.useMrrt
     );
 
     // If you don't have a refresh token in memory
@@ -962,7 +1270,7 @@ export class Auth0Client {
       }
 
       throw new MissingRefreshTokenError(
-        options.authorizationParams.audience || 'default',
+        options.authorizationParams.audience || DEFAULT_AUDIENCE,
         options.authorizationParams.scope
       );
     }
@@ -977,6 +1285,13 @@ export class Auth0Client {
         ? options.timeoutInSeconds * 1000
         : null;
 
+    const scopesToRequest = getScopeToRequest(
+      this.options.useMrrt,
+      options.authorizationParams,
+      cache?.audience,
+      cache?.scope,
+    );
+
     try {
       const tokenResult = await this._requestToken({
         ...options.authorizationParams,
@@ -984,26 +1299,98 @@ export class Auth0Client {
         refresh_token: cache && cache.refresh_token,
         redirect_uri,
         ...(timeout && { timeout })
-      });
+      },
+        {
+          scopesToRequest,
+        }
+      );
+
+      // If is refreshed with MRRT, we update all entries that have the old
+      // refresh_token with the new one if the server responded with one
+      if (tokenResult.refresh_token && cache?.refresh_token) {
+        await this.cacheManager.updateEntry(
+          cache.refresh_token,
+          tokenResult.refresh_token
+        );
+      }
+
+      // Some scopes requested to the server might not be inside the refresh policies
+      // In order to return a token with all requested scopes when using MRRT we should
+      // check if all scopes are returned. If not, we will try to use an iframe to request
+      // a token.
+      if (this.options.useMrrt) {
+        const isRefreshMrrt = isRefreshWithMrrt(
+          cache?.audience,
+          cache?.scope,
+          options.authorizationParams.audience,
+          options.authorizationParams.scope,
+        );
+
+        if (isRefreshMrrt) {
+          const tokenHasAllScopes = allScopesAreIncluded(
+            scopesToRequest,
+            tokenResult.scope,
+          );
+
+          if (!tokenHasAllScopes) {
+            if (this.options.useRefreshTokensFallback) {
+              return await this._getTokenFromIFrame(options);
+            }
+
+            // Before throwing MissingScopesError, we have to remove the previously created entry
+            // to avoid storing wrong data
+            await this.cacheManager.remove(
+              this.options.clientId,
+              options.authorizationParams.audience,
+              options.authorizationParams.scope,
+            );
+
+            const missingScopes = getMissingScopes(
+              scopesToRequest,
+              tokenResult.scope,
+            );
+
+            throw new MissingScopesError(
+              options.authorizationParams.audience || 'default',
+              missingScopes,
+            );
+          }
+        }
+      }
 
       return {
         ...tokenResult,
         scope: options.authorizationParams.scope,
         oauthTokenScope: tokenResult.scope,
-        audience: options.authorizationParams.audience || 'default'
+        audience: options.authorizationParams.audience || DEFAULT_AUDIENCE
       };
     } catch (e) {
-      if (
-        // The web worker didn't have a refresh token in memory so
-        // fallback to an iframe.
-        (e.message.indexOf(MISSING_REFRESH_TOKEN_ERROR_MESSAGE) > -1 ||
-          // A refresh token was found, but is it no longer valid
-          // and useRefreshTokensFallback is explicitly enabled. Fallback to an iframe.
-          (e.message &&
-            e.message.indexOf(INVALID_REFRESH_TOKEN_ERROR_MESSAGE) > -1)) &&
-        this.options.useRefreshTokensFallback
-      ) {
-        return await this._getTokenFromIFrame(options);
+      if (e.message) {
+        // Blocked users should be logged out immediately. No point attempting
+        // iframe fallback as the authorization server will reject the request.
+        if (e.message.includes(USER_BLOCKED_ERROR_MESSAGE)) {
+          await this.logout({ openUrl: false });
+          throw e;
+        }
+
+        // For missing or invalid refresh tokens, attempt iframe fallback if configured.
+        // The iframe may succeed if the user still has a valid session.
+        if (
+          (e.message.includes(MISSING_REFRESH_TOKEN_ERROR_MESSAGE) ||
+            e.message.includes(INVALID_REFRESH_TOKEN_ERROR_MESSAGE)) &&
+          this.options.useRefreshTokensFallback
+        ) {
+          return await this._getTokenFromIFrame(options);
+        }
+      }
+
+      if (e instanceof MfaRequiredError) {
+        this.mfa.setMFAAuthDetails(
+          e.mfa_token,
+          options.authorizationParams?.scope,
+          options.authorizationParams?.audience,
+          e.mfa_requirements
+        );
       }
 
       throw e;
@@ -1030,13 +1417,14 @@ export class Auth0Client {
   }
 
   private async _getIdTokenFromCache() {
-    const audience = this.options.authorizationParams.audience || 'default';
+    const audience = this.options.authorizationParams.audience || DEFAULT_AUDIENCE;
+    const scope = this.scope[audience];
 
     const cache = await this.cacheManager.getIdToken(
       new CacheKey({
         clientId: this.options.clientId,
         audience,
-        scope: this.scope
+        scope,
       })
     );
 
@@ -1057,11 +1445,13 @@ export class Auth0Client {
   private async _getEntryFromCache({
     scope,
     audience,
-    clientId
+    clientId,
+    cacheMode,
   }: {
     scope: string;
     audience: string;
     clientId: string;
+    cacheMode?: string;
   }): Promise<undefined | GetTokenSilentlyVerboseResponse> {
     const entry = await this.cacheManager.get(
       new CacheKey({
@@ -1069,15 +1459,19 @@ export class Auth0Client {
         audience,
         clientId
       }),
-      60 // get a new token if within 60 seconds of expiring
+      60, // get a new token if within 60 seconds of expiring
+      this.options.useMrrt,
+      cacheMode,
     );
 
     if (entry && entry.access_token) {
-      const { access_token, oauthTokenScope, expires_in } = entry as CacheEntry;
+      const { token_type, access_token, oauthTokenScope, expires_in } =
+        entry as CacheEntry;
       const cache = await this._getIdTokenFromCache();
       return (
         cache && {
           id_token: cache.id_token,
+          token_type: token_type ? token_type : 'Bearer',
           access_token,
           ...(oauthTokenScope ? { scope: oauthTokenScope } : null),
           expires_in
@@ -1086,23 +1480,14 @@ export class Auth0Client {
     }
   }
 
-  /**
-   * Releases any lock acquired by the current page that's not released yet
-   *
-   * Get's called on the `pagehide` event.
-   * https://developer.mozilla.org/en-US/docs/Web/API/Window/pagehide_event
-   */
-  private _releaseLockOnPageHide = async () => {
-    await lock.releaseLock(GET_TOKEN_SILENTLY_LOCK_KEY);
-
-    window.removeEventListener('pagehide', this._releaseLockOnPageHide);
-  };
-
   private async _requestToken(
-    options: PKCERequestTokenOptions | RefreshTokenRequestTokenOptions,
+    options:
+      | PKCERequestTokenOptions
+      | RefreshTokenRequestTokenOptions
+      | TokenExchangeRequestOptions,
     additionalParameters?: RequestTokenAdditionalParameters
   ) {
-    const { nonceIn, organization } = additionalParameters || {};
+    const { nonceIn, organization, scopesToRequest } = additionalParameters || {};
     const authResult = await oauthToken(
       {
         baseUrl: this.domainUrl,
@@ -1110,7 +1495,10 @@ export class Auth0Client {
         auth0Client: this.options.auth0Client,
         useFormData: this.options.useFormData,
         timeout: this.httpTimeoutMs,
-        ...options
+        useMrrt: this.options.useMrrt,
+        dpop: this.dpop,
+        ...options,
+        scope: scopesToRequest || options.scope,
       },
       this.worker
     );
@@ -1121,11 +1509,24 @@ export class Auth0Client {
       organization
     );
 
+    // When logging in with authorization_code, check if a different user is authenticating
+    // If so, clear the cache to prevent tokens from multiple users coexisting
+    if (options.grant_type === 'authorization_code') {
+      const existingIdToken = await this._getIdTokenFromCache();
+
+      if (existingIdToken?.decodedToken?.claims?.sub &&
+        existingIdToken.decodedToken.claims.sub !== decodedToken.claims.sub) {
+        // Different user detected - clear cached tokens
+        await this.cacheManager.clear(this.options.clientId);
+        this.userCache.remove(CACHE_KEY_ID_TOKEN_SUFFIX);
+      }
+    }
+
     await this._saveEntryInCache({
       ...authResult,
       decodedToken,
       scope: options.scope,
-      audience: options.audience || 'default',
+      audience: options.audience || DEFAULT_AUDIENCE,
       ...(authResult.scope ? { oauthTokenScope: authResult.scope } : null),
       client_id: this.options.clientId
     });
@@ -1138,6 +1539,286 @@ export class Auth0Client {
     this._processOrgHint(organization || decodedToken.claims.org_id);
 
     return { ...authResult, decodedToken };
+  }
+
+  /*
+  Custom Token Exchange
+  * **Implementation Notes:**
+  * - Ensure that the `subject_token` provided has been securely obtained and is valid according
+  *   to your external identity provider's policies before invoking this function.
+  * - The function leverages internal helper methods:
+  *   - `validateTokenType` confirms that the `subject_token_type` is supported.
+  *   - `getUniqueScopes` merges and de-duplicates scopes between the provided options and
+  *     the instance's default scopes.
+  *   - `_requestToken` performs the actual HTTP request to the token endpoint.
+  */
+
+  /**
+   * ```js
+   * await auth0.loginWithCustomTokenExchange(options);
+   * ```
+   *
+   * Exchanges an external subject token for Auth0 tokens and logs the user in.
+   * This method implements the Custom Token Exchange grant as specified in RFC 8693.
+   *
+   * The exchanged tokens are automatically cached, establishing an authenticated session.
+   * After calling this method, you can use `getUser()`, `getIdTokenClaims()`, and
+   * `getTokenSilently()` to access the user's information and tokens.
+   *
+   * @param {CustomTokenExchangeOptions} options - The options required to perform the token exchange.
+   *
+   * @returns {Promise<TokenEndpointResponse>} A promise that resolves to the token endpoint response,
+   * which contains the issued Auth0 tokens (access_token, id_token, etc.).
+   *
+   * The request includes the following parameters:
+   * - `grant_type`: "urn:ietf:params:oauth:grant-type:token-exchange"
+   * - `subject_token`: The external token to exchange
+   * - `subject_token_type`: The type identifier of the external token
+   * - `scope`: Merged scopes from the request and SDK defaults
+   * - `audience`: Target audience (defaults to SDK configuration)
+   * - `organization`: Optional organization ID/name for org-scoped authentication
+   *
+   * **Example Usage:**
+   *
+   * ```js
+   * const options = {
+   *   subject_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6Ikp...',
+   *   subject_token_type: 'urn:acme:legacy-system-token',
+   *   scope: 'openid profile email',
+   *   audience: 'https://api.example.com',
+   *   organization: 'org_12345'
+   * };
+   *
+   * try {
+   *   const tokenResponse = await auth0.loginWithCustomTokenExchange(options);
+   *   console.log('Access token:', tokenResponse.access_token);
+   *
+   *   // User is now logged in - access user info
+   *   const user = await auth0.getUser();
+   *   console.log('Logged in user:', user);
+   * } catch (error) {
+   *   console.error('Token exchange failed:', error);
+   * }
+   * ```
+   */
+  async loginWithCustomTokenExchange(
+    options: CustomTokenExchangeOptions
+  ): Promise<TokenEndpointResponse> {
+    return this._requestToken({
+      ...options,
+      grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+      subject_token: options.subject_token,
+      subject_token_type: options.subject_token_type,
+      scope: scopesToRequest(
+        this.scope,
+        options.scope,
+        options.audience || this.options.authorizationParams.audience
+      ),
+      audience: options.audience || this.options.authorizationParams.audience,
+      organization: options.organization || this.options.authorizationParams.organization
+    });
+  }
+
+  /**
+   * @deprecated Use `loginWithCustomTokenExchange()` instead. This method will be removed in the next major version.
+   *
+   * Exchanges an external subject token for Auth0 tokens.
+   *
+   * @param {CustomTokenExchangeOptions} options - The options required to perform the token exchange.
+   * @returns {Promise<TokenEndpointResponse>} A promise that resolves to the token endpoint response.
+   *
+   * **Example:**
+   * ```js
+   * // Instead of:
+   * const tokens = await auth0.exchangeToken(options);
+   *
+   * // Use:
+   * const tokens = await auth0.loginWithCustomTokenExchange(options);
+   * ```
+   */
+  async exchangeToken(
+    options: CustomTokenExchangeOptions
+  ): Promise<TokenEndpointResponse> {
+    return this.loginWithCustomTokenExchange(options);
+  }
+
+  protected _assertDpop(dpop: Dpop | undefined): asserts dpop is Dpop {
+    if (!dpop) {
+      throw new Error('`useDpop` option must be enabled before using DPoP.');
+    }
+  }
+
+  /**
+   * Returns the current DPoP nonce used for making requests to Auth0.
+   *
+   * It can return `undefined` because when starting fresh it will not
+   * be populated until after the first response from the server.
+   *
+   * It requires enabling the {@link Auth0ClientOptions.useDpop} option.
+   *
+   * @param nonce The nonce value.
+   * @param id    The identifier of a nonce: if absent, it will get the nonce
+   *              used for requests to Auth0. Otherwise, it will be used to
+   *              select a specific non-Auth0 nonce.
+   */
+  public getDpopNonce(id?: string): Promise<string | undefined> {
+    this._assertDpop(this.dpop);
+
+    return this.dpop.getNonce(id);
+  }
+
+  /**
+   * Sets the current DPoP nonce used for making requests to Auth0.
+   *
+   * It requires enabling the {@link Auth0ClientOptions.useDpop} option.
+   *
+   * @param nonce The nonce value.
+   * @param id    The identifier of a nonce: if absent, it will set the nonce
+   *              used for requests to Auth0. Otherwise, it will be used to
+   *              select a specific non-Auth0 nonce.
+   */
+  public setDpopNonce(nonce: string, id?: string): Promise<void> {
+    this._assertDpop(this.dpop);
+
+    return this.dpop.setNonce(nonce, id);
+  }
+
+  /**
+   * Returns a string to be used to demonstrate possession of the private
+   * key used to cryptographically bind access tokens with DPoP.
+   *
+   * It requires enabling the {@link Auth0ClientOptions.useDpop} option.
+   */
+  public generateDpopProof(params: {
+    url: string;
+    method: string;
+    nonce?: string;
+    accessToken: string;
+  }): Promise<string> {
+    this._assertDpop(this.dpop);
+
+    return this.dpop.generateProof(params);
+  }
+
+  /**
+   * Returns a new `Fetcher` class that will contain a `fetchWithAuth()` method.
+   * This is a drop-in replacement for the Fetch API's `fetch()` method, but will
+   * handle certain authentication logic for you, like building the proper auth
+   * headers or managing DPoP nonces and retries automatically.
+   *
+   * Check the `EXAMPLES.md` file for a deeper look into this method.
+   */
+  public createFetcher<TOutput extends CustomFetchMinimalOutput = Response>(
+    config: FetcherConfig<TOutput> = {}
+  ): Fetcher<TOutput> {
+    return new Fetcher(config, {
+      isDpopEnabled: () => !!this.options.useDpop,
+      getAccessToken: authParams =>
+        this.getTokenSilently({
+          authorizationParams: {
+            scope: authParams?.scope?.join(' '),
+            audience: authParams?.audience
+          },
+          detailedResponse: true
+        }),
+      getDpopNonce: () => this.getDpopNonce(config.dpopNonceId),
+      setDpopNonce: nonce => this.setDpopNonce(nonce, config.dpopNonceId),
+      generateDpopProof: params => this.generateDpopProof(params)
+    });
+  }
+
+
+  /**
+   * Initiates a redirect to connect the user's account with a specified connection.
+   * This method generates PKCE parameters, creates a transaction, and redirects to the /connect endpoint.
+   *
+   * You must enable `Offline Access` from the Connection Permissions settings to be able to use the connection with Connected Accounts.
+   *
+   * @template TAppState - The application state to persist through the transaction.
+   * @param {RedirectConnectAccountOptions<TAppState>} options - Options for the connect account redirect flow.
+   * @param   {string} options.connection - The name of the connection to link (e.g. 'google-oauth2').
+   * @param   {string[]} [options.scopes] - Array of scopes to request from the Identity Provider during the connect account flow.
+   * @param   {AuthorizationParams} [options.authorization_params] - Additional authorization parameters for the request to the upstream IdP.
+   * @param   {string} [options.redirectUri] - The URI to redirect back to after connecting the account.
+   * @param   {TAppState} [options.appState] - Application state to persist through the transaction.
+   * @param   {(url: string) => Promise<void>} [options.openUrl] - Custom function to open the URL.
+   *
+   * @returns {Promise<void>} Resolves when the redirect is initiated.
+   * @throws {MyAccountApiError} If the connect request to the My Account API fails.
+   */
+  public async connectAccountWithRedirect<TAppState = any>(
+    options: RedirectConnectAccountOptions<TAppState>
+  ) {
+    const {
+      openUrl,
+      appState,
+      connection,
+      scopes,
+      authorization_params,
+      redirectUri = this.options.authorizationParams.redirect_uri ||
+      window.location.origin
+    } = options;
+
+    if (!connection) {
+      throw new Error('connection is required');
+    }
+
+    const state = encode(createRandomString());
+    const code_verifier = createRandomString();
+    const code_challengeBuffer = await sha256(code_verifier);
+    const code_challenge = bufferToBase64UrlEncoded(code_challengeBuffer);
+
+    const { connect_uri, connect_params, auth_session } =
+      await this.myAccountApi.connectAccount({
+        connection,
+        scopes,
+        redirect_uri: redirectUri,
+        state,
+        code_challenge,
+        code_challenge_method: 'S256',
+        authorization_params
+      });
+
+    this.transactionManager.create<ConnectAccountTransaction>({
+      state,
+      code_verifier,
+      auth_session,
+      redirect_uri: redirectUri,
+      appState,
+      connection,
+      response_type: ResponseType.ConnectCode
+    });
+
+    const url = new URL(connect_uri);
+    url.searchParams.set('ticket', connect_params.ticket);
+    if (openUrl) {
+      await openUrl(url.toString());
+    } else {
+      window.location.assign(url);
+    }
+  }
+
+  /**
+   * @internal
+   * Internal method used by MfaApiClient to exchange MFA tokens for access tokens.
+   * This method should not be called directly by applications.
+   */
+  async _requestTokenForMfa(
+    options: {
+      grant_type: string;
+      mfaToken: string;
+      scope?: string;
+      audience?: string;
+      otp?: string;
+      binding_code?: string;
+      oob_code?: string;
+      recovery_code?: string;
+    },
+    additionalParameters?: RequestTokenAdditionalParameters
+  ): Promise<TokenEndpointResponse> {
+    // Need to add better typing here
+    const { mfaToken, ...restOptions } = options;
+    return this._requestToken({ ...restOptions, mfa_token: mfaToken } as any, additionalParameters);
   }
 }
 
@@ -1159,7 +1840,17 @@ interface RefreshTokenRequestTokenOptions extends BaseRequestTokenOptions {
   refresh_token?: string;
 }
 
+interface TokenExchangeRequestOptions extends BaseRequestTokenOptions {
+  grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange';
+  subject_token: string;
+  subject_token_type: string;
+  actor_token?: string;
+  actor_token_type?: string;
+  organization?: string;
+}
+
 interface RequestTokenAdditionalParameters {
   nonceIn?: string;
   organization?: string;
+  scopesToRequest?: string;
 }

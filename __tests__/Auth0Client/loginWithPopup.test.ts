@@ -31,6 +31,7 @@ import {
 } from '../constants';
 
 import {
+  DEFAULT_AUDIENCE,
   DEFAULT_AUTH0_CLIENT,
   DEFAULT_POPUP_CONFIG_OPTIONS
 } from '../../src/constants';
@@ -598,7 +599,7 @@ describe('Auth0Client', () => {
           client_id: TEST_CLIENT_ID,
           access_token: TEST_ACCESS_TOKEN,
           expires_in: 86400,
-          audience: 'default',
+          audience: DEFAULT_AUDIENCE,
           scope: TEST_SCOPES
         })
       );
@@ -784,6 +785,67 @@ describe('Auth0Client', () => {
         },
         false
       );
+    });
+
+    it('should close popup immediately by default', async () => {
+      const auth0 = setup();
+      const popup = {
+        location: { href: '' },
+        close: jest.fn()
+      };
+
+      await loginWithPopup(auth0, {}, { popup });
+
+      expect(popup.close).toHaveBeenCalled();
+    });
+
+    it('should close popup immediately when closePopup is true', async () => {
+      const auth0 = setup();
+      const popup = {
+        location: { href: '' },
+        close: jest.fn()
+      };
+
+      await loginWithPopup(auth0, {}, { popup, closePopup: true });
+
+      expect(popup.close).toHaveBeenCalled();
+    });
+
+    it('should not close popup when closePopup is false', async () => {
+      const auth0 = setup();
+      const popup = {
+        location: { href: '' },
+        close: jest.fn()
+      };
+
+      await loginWithPopup(auth0, {}, { popup, closePopup: false });
+
+      // SDK should NOT close the popup when closePopup is false
+      // User is responsible for closing it
+      expect(popup.close).not.toHaveBeenCalled();
+    });
+
+    it('should not close popup on token exchange failure when closePopup is false', async () => {
+      const auth0 = setup();
+      const popup = {
+        location: { href: '' },
+        close: jest.fn()
+      };
+
+      await expect(
+        loginWithPopup(
+          auth0,
+          {},
+          { popup, closePopup: false },
+          { token: { success: false } }
+        )
+      ).rejects.toThrowError(
+        'HTTP error. Unable to fetch https://auth0_domain/oauth/token'
+      );
+
+      // SDK should NOT close popup even on failure when closePopup is false
+      // User is responsible for cleanup
+      expect(popup.close).not.toHaveBeenCalled();
     });
   });
 });

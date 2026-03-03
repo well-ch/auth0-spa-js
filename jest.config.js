@@ -16,7 +16,8 @@ module.exports = {
     ['jest-junit', { outputDirectory: 'test-results/jest' }]
   ],
   coverageReporters: ['lcov', 'text', 'text-summary'],
-  preset: 'ts-jest',
+  preset: 'ts-jest/presets/js-with-ts',
+  transformIgnorePatterns: ['node_modules\/(?!(dpop|@auth0\/auth0-auth-js|openid-client|oauth4webapi|jose)\/)'],
   setupFiles: ['jest-localstorage-mock', './jest.setup.js'],
   globals: {
     'ts-jest': {
